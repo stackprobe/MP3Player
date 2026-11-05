@@ -281,6 +281,12 @@ namespace MP3Player
             }
         }
 
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            CloseTrack();
+            base.OnFormClosed(e);
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
