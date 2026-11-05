@@ -47,8 +47,7 @@ namespace MP3Player
                 }
             }
 
-            return files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            return files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(path => path, StringComparer.Ordinal);
         }
 
