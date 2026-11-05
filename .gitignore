@@ -1,0 +1,15 @@
+# VisualStudio 2022
+bin/
+obj/
+.vs/
+packages/
+
+# Release.bat
+out/
+
+# Factory
+tmp/
+
+# C-Language
+*.exe
+*.obj

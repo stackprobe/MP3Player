@@ -1,0 +1,11 @@
+# Fix C source code and text files to SJIS + CRLF
+*.c   text eol=crlf working-tree-encoding=CP932
+*.h   text eol=crlf working-tree-encoding=CP932
+*.txt text eol=crlf working-tree-encoding=CP932
+*.bat text eol=crlf working-tree-encoding=CP932
+
+# C-Sharp source code files retain CRLF
+*.cs  text eol=crlf working-tree-encoding=UTF-8
+
+# Etcetera
+*.ps1 text eol=crlf working-tree-encoding=UTF-8
