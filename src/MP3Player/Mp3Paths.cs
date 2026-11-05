@@ -37,7 +37,7 @@ namespace MP3Player
                 try
                 {
                     if (Directory.Exists(path))
-                        files.AddRange(Directory.EnumerateFiles(path).Where(IsMp3));
+                        AddDirectoryFiles(path, files);
                     else if (IsMp3(path) && File.Exists(path))
                         files.Add(path);
                 }
@@ -50,6 +50,36 @@ namespace MP3Player
             return files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(path => path, StringComparer.Ordinal);
+        }
+
+        private static void AddDirectoryFiles(string path, List<string> files)
+        {
+            var pending = new Stack<DirectoryInfo>();
+            pending.Push(new DirectoryInfo(path));
+            while (pending.Count > 0)
+            {
+                DirectoryInfo directory = pending.Pop();
+                try
+                {
+                    foreach (FileSystemInfo entry in directory.EnumerateFileSystemInfos())
+                    {
+                        if (entry is DirectoryInfo child)
+                        {
+                            // Avoid cycles through junctions and directory symlinks.
+                            if ((child.Attributes & FileAttributes.ReparsePoint) == 0)
+                                pending.Push(child);
+                        }
+                        else if (IsMp3(entry.Name))
+                        {
+                            files.Add(entry.FullName);
+                        }
+                    }
+                }
+                catch (Exception ex) when (IsPathError(ex))
+                {
+                    Trace.WriteLine(ex);
+                }
+            }
         }
 
         private static bool IsMp3(string path)
