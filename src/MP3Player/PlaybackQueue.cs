@@ -23,6 +23,8 @@ namespace MP3Player
         public PlaybackMode Mode { get; private set; }
         public bool HasNext => available.Count > 0;
         public string Current => historyIndex >= 0 ? history[historyIndex] : null;
+        public int Count => available.Count;
+        public int CurrentNumber => available.IndexOf(Current) + 1;
 
         public void Add(IEnumerable<string> paths)
         {

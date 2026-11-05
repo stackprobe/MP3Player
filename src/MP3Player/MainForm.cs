@@ -13,10 +13,15 @@ namespace MP3Player
 {
     internal sealed class MainForm : Form
     {
-        private readonly PlaybackQueue queue = new PlaybackQueue();
+        private PlaybackQueue queue = new PlaybackQueue();
         private readonly Label fileName = new Label
         {
             AutoEllipsis = true,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        private readonly Label trackNumber = new Label
+        {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter
         };
@@ -25,6 +30,7 @@ namespace MP3Player
         private readonly Button play = CreateButton("再生");
         private readonly Button next = CreateButton("次の曲");
         private readonly Button mode = CreateButton("順番ループ");
+        private readonly Button reset = CreateButton("リセット");
         private AudioFileReader reader;
         private WasapiOut output;
 
@@ -32,7 +38,7 @@ namespace MP3Player
         {
             Text = "MP3 Player";
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(470, 120);
+            ClientSize = new Size(560, 140);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
 
@@ -40,18 +46,21 @@ namespace MP3Player
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
-                ColumnCount = 5,
-                RowCount = 2
+                ColumnCount = 6,
+                RowCount = 3
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 23));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 35));
             layout.Controls.Add(fileName, 0, 0);
-            layout.SetColumnSpan(fileName, 5);
-            var buttons = new[] { previous, pause, play, next, mode };
+            layout.SetColumnSpan(fileName, layout.ColumnCount);
+            layout.Controls.Add(trackNumber, 0, 1);
+            layout.SetColumnSpan(trackNumber, layout.ColumnCount);
+            var buttons = new[] { previous, pause, play, next, mode, reset };
             for (int column = 0; column < buttons.Length; column++)
             {
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-                layout.Controls.Add(buttons[column], column, 1);
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / buttons.Length));
+                layout.Controls.Add(buttons[column], column, 2);
             }
             Controls.Add(layout);
 
@@ -68,6 +77,12 @@ namespace MP3Player
             mode.Click += (sender, e) =>
             {
                 queue.CycleMode();
+                UpdateControls();
+            };
+            reset.Click += (sender, e) =>
+            {
+                CloseTrack();
+                queue = new PlaybackQueue();
                 UpdateControls();
             };
 
@@ -220,10 +235,12 @@ namespace MP3Player
         {
             WaveState state = output?.PlaybackState ?? WaveState.Stopped;
             fileName.Text = output == null ? "MP3 ファイルまたはフォルダーをドロップ" : Path.GetFileName(queue.Current);
+            trackNumber.Text = $"{(output == null ? 0 : queue.CurrentNumber)} / {queue.Count}";
             previous.Enabled = queue.Current != null;
             pause.Enabled = state == WaveState.Playing;
             play.Enabled = state == WaveState.Paused || (output == null && queue.HasNext);
             next.Enabled = output != null || queue.HasNext;
+            reset.Enabled = !queue.IsEmpty || queue.Mode != PlaybackMode.Sequence;
             switch (queue.Mode)
             {
                 case PlaybackMode.Shuffle:
