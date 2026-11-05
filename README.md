@@ -6,9 +6,9 @@ Windows 11 向けの小さな MP3 プレイヤーです。WinForms と .NET Fram
 
 Visual Studio 2022 に「.NET デスクトップ開発」ワークロードと .NET Framework 4.8 ターゲット パックをインストールします。
 
-1. `MP3Player.sln` を開きます。
+1. リポジトリのルートから `src\MP3Player.sln` を開きます。
 2. ソリューションをビルドします。NuGet が NAudio を復元します。
-3. F5 で起動します。Release 構成でビルドした実行ファイルは `MP3Player\bin\Release\net48\MP3Player.exe` です。配布する場合は、同じ出力フォルダーの DLL なども一緒に配置してください。
+3. F5 で起動します。Release 構成でビルドした実行ファイルは、リポジトリのルートから `src\MP3Player\bin\Release\net48\MP3Player.exe` にあります。配布する場合は、同じ出力フォルダーの DLL なども一緒に配置してください。
 
 ## 使い方
 

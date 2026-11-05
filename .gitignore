@@ -2,6 +2,7 @@
 bin/
 obj/
 .vs/
+*.csproj.user
 packages/
 
 # Release.bat
