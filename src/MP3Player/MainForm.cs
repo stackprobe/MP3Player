@@ -137,7 +137,8 @@ namespace MP3Player
                 return;
 
             // The WASAPI device clock can keep advancing while the source is paused.
-            if (reader != null && reader.CurrentTime <= TimeSpan.FromSeconds(3))
+            if (queue.Mode != PlaybackMode.Shuffle ||
+                (reader != null && reader.CurrentTime <= TimeSpan.FromSeconds(3)))
                 path = queue.TakePrevious();
 
             if (!TryPlay(path))

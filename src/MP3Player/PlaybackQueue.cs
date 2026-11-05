@@ -18,6 +18,7 @@ namespace MP3Player
         private readonly List<string> history = new List<string>();
         private readonly Random random = new Random();
         private int historyIndex = -1;
+        private int orderedIndex = -1;
 
         public bool IsEmpty => registered.Count == 0;
         public PlaybackMode Mode { get; private set; }
@@ -46,20 +47,21 @@ namespace MP3Player
                     Mode = PlaybackMode.Shuffle;
                     break;
                 case PlaybackMode.Shuffle:
+                    orderedIndex = CurrentNumber - 1;
                     Mode = PlaybackMode.RepeatOne;
                     break;
                 default:
                     Mode = PlaybackMode.Sequence;
                     break;
             }
-            // A mode change makes the next selection use the remaining unplayed tracks.
+            // Forward history belongs to the previous mode.
             int next = historyIndex + 1;
             history.RemoveRange(next, history.Count - next);
         }
 
         public string TakeNext()
         {
-            if (historyIndex + 1 < history.Count)
+            if (Mode == PlaybackMode.Shuffle && historyIndex + 1 < history.Count)
                 return history[++historyIndex];
 
             if (!HasNext)
@@ -69,9 +71,16 @@ namespace MP3Player
             if (newPass)
                 pending.AddRange(available);
 
-            int index = Mode == PlaybackMode.Shuffle ? PickShuffledIndex(newPass) : 0;
-            string path = pending[index];
-            pending.RemoveAt(index);
+            if (Mode == PlaybackMode.Shuffle)
+                return Remember(pending[PickShuffledIndex(newPass)]);
+
+            orderedIndex = (orderedIndex + 1) % available.Count;
+            return Remember(available[orderedIndex]);
+        }
+
+        private string Remember(string path)
+        {
+            pending.Remove(path);
             history.Add(path);
             historyIndex++;
             // Keep enough history to go back one full pass without growing indefinitely.
@@ -95,6 +104,12 @@ namespace MP3Player
 
         public string TakePrevious()
         {
+            if (Mode != PlaybackMode.Shuffle && orderedIndex >= 0)
+            {
+                orderedIndex = (orderedIndex + available.Count - 1) % available.Count;
+                return Remember(available[orderedIndex]);
+            }
+
             if (historyIndex > 0)
                 historyIndex--;
             return Current;
@@ -103,7 +118,11 @@ namespace MP3Player
         public void DiscardCurrent()
         {
             string path = Current;
-            available.Remove(path);
+            if (available.Remove(path) && Mode != PlaybackMode.Shuffle)
+            {
+                // After removal, the following track slides into the removed track's slot.
+                orderedIndex--;
+            }
             pending.Remove(path);
             for (int index = history.Count - 1; index >= 0; index--)
             {
