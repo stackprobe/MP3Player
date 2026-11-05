@@ -6,7 +6,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Windows.Forms;
-using NAudio;
 using NAudio.Wave;
 using WaveState = NAudio.Wave.PlaybackState;
 
@@ -27,7 +26,7 @@ namespace MP3Player
         private readonly Button next = CreateButton("次の曲");
         private readonly Button mode = CreateButton("順番");
         private AudioFileReader reader;
-        private WaveOut output;
+        private WasapiOut output;
 
         public MainForm()
         {
@@ -63,7 +62,7 @@ namespace MP3Player
                 if (output == null)
                     Advance();
                 else
-                    ChangePlayback(WaveState.Paused, device => device.Resume());
+                    ChangePlayback(WaveState.Paused, device => device.Play());
             };
             next.Click += (sender, e) => Advance();
             mode.Click += (sender, e) =>
@@ -115,19 +114,9 @@ namespace MP3Player
             if (path == null)
                 return;
 
-            if (output != null)
-            {
-                try
-                {
-                    if (output.GetPosition() <= 3L * output.OutputWaveFormat.AverageBytesPerSecond)
-                        path = queue.TakePrevious();
-                }
-                catch (MmException ex)
-                {
-                    SkipFailedTrack(ex);
-                    return;
-                }
-            }
+            // The WASAPI device clock can keep advancing while the source is paused.
+            if (reader != null && reader.CurrentTime <= TimeSpan.FromSeconds(3))
+                path = queue.TakePrevious();
 
             if (!TryPlay(path))
             {
@@ -161,8 +150,8 @@ namespace MP3Player
                 if (reader.Length == 0)
                     throw new InvalidDataException("The MP3 contains no audio.");
 
-                // Window callbacks and the captured WinForms context keep playback transitions on the UI thread.
-                output = new WaveOut(WaveCallbackInfo.NewWindow());
+                // WASAPI uses shared mode and posts completion to the captured WinForms context.
+                output = new WasapiOut();
                 output.Init(reader);
                 output.PlaybackStopped += PlaybackStopped;
                 output.Play();
@@ -176,7 +165,7 @@ namespace MP3Player
             }
         }
 
-        private void ChangePlayback(WaveState from, Action<WaveOut> change)
+        private void ChangePlayback(WaveState from, Action<WasapiOut> change)
         {
             if (output?.PlaybackState != from)
                 return;
@@ -186,7 +175,7 @@ namespace MP3Player
                 change(output);
                 UpdateControls();
             }
-            catch (MmException ex)
+            catch (Exception ex) when (IsPlaybackError(ex))
             {
                 SkipFailedTrack(ex);
             }
@@ -224,7 +213,7 @@ namespace MP3Player
 
         private void CloseTrack()
         {
-            WaveOut device = output;
+            WasapiOut device = output;
             output = null;
             try
             {
@@ -234,7 +223,7 @@ namespace MP3Player
                     device.Dispose();
                 }
             }
-            catch (MmException ex)
+            catch (Exception ex) when (IsPlaybackError(ex))
             {
                 Trace.WriteLine(ex);
             }
@@ -256,7 +245,7 @@ namespace MP3Player
         {
             return ex is IOException || ex is UnauthorizedAccessException || ex is SecurityException
                 || ex is ArgumentException || ex is NotSupportedException || ex is InvalidOperationException
-                || ex is InvalidDataException || ex is COMException || ex is MmException;
+                || ex is InvalidDataException || ex is COMException;
         }
     }
 }
