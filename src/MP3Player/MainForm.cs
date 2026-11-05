@@ -44,6 +44,7 @@ namespace MP3Player
             Icon = windowIcon;
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(650, 140);
+            StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
 
