@@ -26,6 +26,7 @@ namespace MP3Player
             TextAlign = ContentAlignment.MiddleCenter
         };
         private readonly Button previous = CreateButton("前の曲");
+        private readonly Button restart = CreateButton("曲の先頭");
         private readonly Button pause = CreateButton("一時停止");
         private readonly Button play = CreateButton("再生");
         private readonly Button next = CreateButton("次の曲");
@@ -38,15 +39,16 @@ namespace MP3Player
         {
             Text = "MP3 Player";
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(560, 140);
+            ClientSize = new Size(650, 140);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
 
+            var buttons = new[] { previous, restart, pause, play, next, mode, reset };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
-                ColumnCount = 6,
+                ColumnCount = buttons.Length,
                 RowCount = 3
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
@@ -56,7 +58,6 @@ namespace MP3Player
             layout.SetColumnSpan(fileName, layout.ColumnCount);
             layout.Controls.Add(trackNumber, 0, 1);
             layout.SetColumnSpan(trackNumber, layout.ColumnCount);
-            var buttons = new[] { previous, pause, play, next, mode, reset };
             for (int column = 0; column < buttons.Length; column++)
             {
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / buttons.Length));
@@ -65,6 +66,7 @@ namespace MP3Player
             Controls.Add(layout);
 
             previous.Click += (sender, e) => PlayPrevious();
+            restart.Click += (sender, e) => Advance(repeatCurrent: true);
             pause.Click += (sender, e) => ChangePlayback(WaveState.Playing, device => device.Pause());
             play.Click += (sender, e) =>
             {
@@ -237,6 +239,7 @@ namespace MP3Player
             fileName.Text = output == null ? "MP3 ファイルまたはフォルダーをドロップ" : Path.GetFileName(queue.Current);
             trackNumber.Text = $"{(output == null ? 0 : queue.CurrentNumber)} / {queue.Count}";
             previous.Enabled = queue.Current != null;
+            restart.Enabled = queue.Current != null;
             pause.Enabled = state == WaveState.Playing;
             play.Enabled = state == WaveState.Paused || (output == null && queue.HasNext);
             next.Enabled = output != null || queue.HasNext;
