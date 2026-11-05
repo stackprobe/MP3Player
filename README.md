@@ -1,4 +1,4 @@
-# MP3 Player
+﻿# MP3 Player
 
 Windows 11 向けの小さな MP3 プレイヤーです。WinForms と .NET Framework 4.8 を使用し、NAudio 2.2.1 で再生します。
 
