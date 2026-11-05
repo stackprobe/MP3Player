@@ -13,6 +13,8 @@ namespace MP3Player
 {
     internal sealed class MainForm : Form
     {
+        private readonly Font uiFont = new Font("Meiryo", 10f, FontStyle.Regular, GraphicsUnit.Point);
+        private readonly Icon windowIcon = new Icon(typeof(MainForm), "MP3Player.ico");
         private PlaybackQueue queue = new PlaybackQueue();
         private readonly Label fileName = new Label
         {
@@ -38,6 +40,8 @@ namespace MP3Player
         public MainForm()
         {
             Text = "MP3 Player";
+            Font = uiFont;
+            Icon = windowIcon;
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(650, 140);
             FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -60,7 +64,7 @@ namespace MP3Player
             layout.SetColumnSpan(trackNumber, layout.ColumnCount);
             for (int column = 0; column < buttons.Length; column++)
             {
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / buttons.Length));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, buttons[column] == mode ? 16 : 14));
                 layout.Controls.Add(buttons[column], column, 2);
             }
             Controls.Add(layout);
@@ -292,6 +296,11 @@ namespace MP3Player
             if (disposing)
                 CloseTrack();
             base.Dispose(disposing);
+            if (disposing)
+            {
+                windowIcon.Dispose();
+                uiFont.Dispose();
+            }
         }
 
         private static bool IsPlaybackError(Exception ex)
