@@ -24,7 +24,7 @@ namespace MP3Player
         private readonly Button pause = CreateButton("一時停止");
         private readonly Button play = CreateButton("再生");
         private readonly Button next = CreateButton("次の曲");
-        private readonly Button mode = CreateButton("順番");
+        private readonly Button mode = CreateButton("順番ループ");
         private AudioFileReader reader;
         private WasapiOut output;
 
@@ -67,7 +67,7 @@ namespace MP3Player
             next.Click += (sender, e) => Advance();
             mode.Click += (sender, e) =>
             {
-                queue.ToggleMode();
+                queue.CycleMode();
                 UpdateControls();
             };
 
@@ -127,16 +127,14 @@ namespace MP3Player
                 UpdateControls();
         }
 
-        private void Advance()
+        private void Advance(bool repeatCurrent = false)
         {
             CloseTrack();
-            string path;
-            while ((path = queue.TakeNext()) != null)
+            string path = repeatCurrent ? queue.Current : queue.TakeNext();
+            while (path != null && !TryPlay(path))
             {
-                if (TryPlay(path))
-                    break;
-
                 queue.DiscardCurrent();
+                path = queue.TakeNext();
             }
             UpdateControls();
         }
@@ -183,14 +181,32 @@ namespace MP3Player
 
         private void PlaybackStopped(object sender, StoppedEventArgs e)
         {
+            if (!IsHandleCreated || Disposing)
+                return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action(() => PlaybackStopped(sender, e)));
+                }
+                catch (InvalidOperationException) when (!IsHandleCreated || Disposing)
+                {
+                    // The form closed before the notification could be queued.
+                }
+                return;
+            }
+
             // Stop/dispose can leave a queued callback from the previous output device.
             if (!ReferenceEquals(sender, output))
                 return;
 
             if (e.Exception != null)
                 SkipFailedTrack(e.Exception);
+            else if (reader.Position == 0)
+                SkipFailedTrack(new InvalidDataException("The MP3 contains no playable audio."));
             else
-                Advance();
+                Advance(queue.Mode == PlaybackMode.RepeatOne);
         }
 
         private void SkipFailedTrack(Exception ex)
@@ -208,7 +224,18 @@ namespace MP3Player
             pause.Enabled = state == WaveState.Playing;
             play.Enabled = state == WaveState.Paused || (output == null && queue.HasNext);
             next.Enabled = output != null || queue.HasNext;
-            mode.Text = queue.Shuffle ? "シャッフル" : "順番";
+            switch (queue.Mode)
+            {
+                case PlaybackMode.Shuffle:
+                    mode.Text = "シャッフル";
+                    break;
+                case PlaybackMode.RepeatOne:
+                    mode.Text = "1曲ループ";
+                    break;
+                default:
+                    mode.Text = "順番ループ";
+                    break;
+            }
         }
 
         private void CloseTrack()
