@@ -29,8 +29,7 @@ namespace MP3Player
         };
         private readonly Button previous = CreateButton("前の曲");
         private readonly Button restart = CreateButton("曲の先頭");
-        private readonly Button pause = CreateButton("一時停止");
-        private readonly Button play = CreateButton("再生");
+        private readonly Button playbackToggle = CreateButton("再生");
         private readonly Button next = CreateButton("次の曲");
         private readonly Button mode = CreateButton("順番ループ");
         private readonly Button reset = CreateButton("リセット");
@@ -48,7 +47,7 @@ namespace MP3Player
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
 
-            var buttons = new[] { previous, restart, pause, play, next, mode, reset };
+            var buttons = new[] { previous, restart, playbackToggle, next, mode, reset };
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -65,21 +64,14 @@ namespace MP3Player
             layout.SetColumnSpan(trackNumber, layout.ColumnCount);
             for (int column = 0; column < buttons.Length; column++)
             {
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, buttons[column] == mode ? 16 : 14));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, buttons[column] == mode ? 20 : 16));
                 layout.Controls.Add(buttons[column], column, 2);
             }
             Controls.Add(layout);
 
             previous.Click += (sender, e) => PlayPrevious();
             restart.Click += (sender, e) => Advance(repeatCurrent: true);
-            pause.Click += (sender, e) => ChangePlayback(WaveState.Playing, device => device.Pause());
-            play.Click += (sender, e) =>
-            {
-                if (output == null)
-                    Advance();
-                else
-                    ChangePlayback(WaveState.Paused, device => device.Play());
-            };
+            playbackToggle.Click += (sender, e) => TogglePlayback();
             next.Click += (sender, e) => Advance();
             mode.Click += (sender, e) =>
             {
@@ -186,14 +178,25 @@ namespace MP3Player
             }
         }
 
-        private void ChangePlayback(WaveState from, Action<WasapiOut> change)
+        private void TogglePlayback()
         {
-            if (output?.PlaybackState != from)
+            if (output == null)
+            {
+                Advance();
                 return;
+            }
 
             try
             {
-                change(output);
+                switch (output.PlaybackState)
+                {
+                    case WaveState.Playing:
+                        output.Pause();
+                        break;
+                    case WaveState.Paused:
+                        output.Play();
+                        break;
+                }
                 UpdateControls();
             }
             catch (Exception ex) when (IsPlaybackError(ex))
@@ -246,8 +249,9 @@ namespace MP3Player
             trackNumber.Text = $"{(output == null ? 0 : queue.CurrentNumber)} / {queue.Count}";
             previous.Enabled = queue.Current != null;
             restart.Enabled = queue.Current != null;
-            pause.Enabled = state == WaveState.Playing;
-            play.Enabled = state == WaveState.Paused || (output == null && queue.HasNext);
+            playbackToggle.Text = state == WaveState.Playing ? "一時停止" : "再生";
+            playbackToggle.Enabled = state == WaveState.Playing || state == WaveState.Paused
+                || (output == null && queue.HasNext);
             next.Enabled = output != null || queue.HasNext;
             reset.Enabled = !queue.IsEmpty || queue.Mode != PlaybackMode.Sequence;
             switch (queue.Mode)
