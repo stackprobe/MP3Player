@@ -6,7 +6,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Windows.Forms;
+using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Wave;
+using Windows.Media;
 using WaveState = NAudio.Wave.PlaybackState;
 
 namespace MP3Player
@@ -34,7 +37,14 @@ namespace MP3Player
         private readonly Button mode = CreateButton("順番ループ");
         private readonly Button reset = CreateButton("リセット");
         private AudioFileReader reader;
-        private WasapiOut output;
+        private volatile WasapiOut output;
+        private string outputDeviceId;
+        private long outputStartPosition;
+        private MediaControls mediaControls;
+        private MMDeviceEnumerator deviceEnumerator;
+        private OutputNotifications outputNotifications;
+
+        private bool IsPlaying => output?.PlaybackState == WaveState.Playing;
 
         public MainForm()
         {
@@ -163,11 +173,13 @@ namespace MP3Player
                 if (reader.Length == 0)
                     throw new InvalidDataException("The MP3 contains no audio.");
 
-                // WASAPI uses shared mode and posts completion to the captured WinForms context.
-                output = new WasapiOut();
-                output.Init(reader);
-                output.PlaybackStopped += PlaybackStopped;
-                output.Play();
+                StartOutput();
+                return true;
+            }
+            catch (COMException ex) when (reader != null && IsOutputUnavailable(ex))
+            {
+                Trace.WriteLine(ex);
+                CloseOutput();
                 return true;
             }
             catch (Exception ex) when (IsPlaybackError(ex))
@@ -178,31 +190,92 @@ namespace MP3Player
             }
         }
 
+        private void StartOutput()
+        {
+            using (var enumerator = new MMDeviceEnumerator())
+            using (var endpoint = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console))
+            {
+                outputDeviceId = endpoint.ID;
+                outputStartPosition = reader.Position;
+                // Keep the same shared mode, event synchronization and latency as WasapiOut's default.
+                var device = new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 200);
+                output = device;
+                device.Init(reader);
+                device.PlaybackStopped += PlaybackStopped;
+                device.Play();
+            }
+        }
+
         private void TogglePlayback()
         {
-            if (output == null)
+            if (IsPlaying)
+                PausePlayback();
+            else
+                Play();
+        }
+
+        private void Play()
+        {
+            if (IsPlaying)
+                return;
+
+            if (reader == null)
             {
                 Advance();
                 return;
             }
 
+            bool needsOutput = output == null;
             try
             {
-                switch (output.PlaybackState)
-                {
-                    case WaveState.Playing:
-                        output.Pause();
-                        break;
-                    case WaveState.Paused:
-                        output.Play();
-                        break;
-                }
-                UpdateControls();
+                if (needsOutput)
+                    StartOutput();
+                else if (output.PlaybackState == WaveState.Paused)
+                    output.Play();
+            }
+            catch (Exception ex) when (IsPlaybackError(ex) && needsOutput)
+            {
+                // Leave the current track paused so Play can retry when an output is available.
+                Trace.WriteLine(ex);
+                CloseOutput();
             }
             catch (Exception ex) when (IsPlaybackError(ex))
             {
                 SkipFailedTrack(ex);
             }
+            UpdateControls();
+        }
+
+        private void PausePlayback()
+        {
+            if (!IsPlaying)
+                return;
+
+            output.Pause();
+            UpdateControls();
+        }
+
+        private void SuspendOutput()
+        {
+            long? renderedPosition = null;
+            try
+            {
+                if (output.PlaybackState != WaveState.Stopped)
+                    renderedPosition = outputStartPosition + output.GetPosition();
+            }
+            catch (Exception ex) when (IsPlaybackError(ex))
+            {
+                // A disconnected endpoint may have already lost its clock.
+                Trace.WriteLine(ex);
+            }
+
+            CloseOutput();
+            if (renderedPosition.HasValue)
+            {
+                long position = Math.Max(outputStartPosition, Math.Min(renderedPosition.Value, reader.Position));
+                reader.Position = position - position % reader.WaveFormat.BlockAlign;
+            }
+            UpdateControls();
         }
 
         private void PlaybackStopped(object sender, StoppedEventArgs e)
@@ -212,14 +285,7 @@ namespace MP3Player
 
             if (InvokeRequired)
             {
-                try
-                {
-                    BeginInvoke(new Action(() => PlaybackStopped(sender, e)));
-                }
-                catch (InvalidOperationException) when (!IsHandleCreated || Disposing)
-                {
-                    // The form closed before the notification could be queued.
-                }
+                PostToForm(() => PlaybackStopped(sender, e));
                 return;
             }
 
@@ -227,7 +293,9 @@ namespace MP3Player
             if (!ReferenceEquals(sender, output))
                 return;
 
-            if (e.Exception != null)
+            if (e.Exception is COMException comError && IsOutputUnavailable(comError))
+                SuspendOutput();
+            else if (e.Exception != null)
                 SkipFailedTrack(e.Exception);
             else if (reader.Position == 0)
                 SkipFailedTrack(new InvalidDataException("The MP3 contains no playable audio."));
@@ -244,15 +312,14 @@ namespace MP3Player
 
         private void UpdateControls()
         {
-            WaveState state = output?.PlaybackState ?? WaveState.Stopped;
-            fileName.Text = output == null ? "MP3 ファイルまたはフォルダーをドロップ" : Path.GetFileName(queue.Current);
-            trackNumber.Text = $"{(output == null ? 0 : queue.CurrentNumber)} / {queue.Count}";
+            string title = reader == null ? null : Path.GetFileName(queue.Current);
+            fileName.Text = title ?? "MP3 ファイルまたはフォルダーをドロップ";
+            trackNumber.Text = $"{(reader == null ? 0 : queue.CurrentNumber)} / {queue.Count}";
             previous.Enabled = queue.Current != null;
             restart.Enabled = queue.Current != null;
-            playbackToggle.Text = state == WaveState.Playing ? "一時停止" : "再生";
-            playbackToggle.Enabled = state == WaveState.Playing || state == WaveState.Paused
-                || (output == null && queue.HasNext);
-            next.Enabled = output != null || queue.HasNext;
+            playbackToggle.Text = IsPlaying ? "一時停止" : "再生";
+            playbackToggle.Enabled = reader != null || queue.HasNext;
+            next.Enabled = reader != null || queue.HasNext;
             reset.Enabled = !queue.IsEmpty || queue.Mode != PlaybackMode.Sequence;
             switch (queue.Mode)
             {
@@ -266,12 +333,29 @@ namespace MP3Player
                     mode.Text = "順番ループ";
                     break;
             }
+
+            try
+            {
+                mediaControls?.Update(title, IsPlaying, playbackToggle.Enabled, next.Enabled, previous.Enabled);
+            }
+            catch (COMException ex)
+            {
+                Trace.WriteLine(ex);
+            }
         }
 
         private void CloseTrack()
         {
+            CloseOutput();
+            reader?.Dispose();
+            reader = null;
+        }
+
+        private void CloseOutput()
+        {
             WasapiOut device = output;
             output = null;
+            outputDeviceId = null;
             try
             {
                 if (device != null)
@@ -284,11 +368,135 @@ namespace MP3Player
             {
                 Trace.WriteLine(ex);
             }
-            finally
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
             {
-                reader?.Dispose();
-                reader = null;
+                mediaControls = new MediaControls(Handle, button => PostToForm(() => HandleMediaButton(button)));
             }
+            catch (Exception ex) when (ex is COMException || ex is TypeLoadException
+                || ex is PlatformNotSupportedException || ex is InvalidCastException)
+            {
+                Trace.WriteLine(ex);
+            }
+
+            try
+            {
+                deviceEnumerator = new MMDeviceEnumerator();
+                var notifications = new OutputNotifications(OutputChanged);
+                Marshal.ThrowExceptionForHR(deviceEnumerator.RegisterEndpointNotificationCallback(notifications));
+                outputNotifications = notifications;
+            }
+            catch (Exception ex) when (IsPlaybackError(ex))
+            {
+                Trace.WriteLine(ex);
+            }
+            UpdateControls();
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            try
+            {
+                mediaControls?.Dispose();
+            }
+            catch (COMException ex)
+            {
+                Trace.WriteLine(ex);
+            }
+            mediaControls = null;
+
+            if (outputNotifications != null)
+                deviceEnumerator.UnregisterEndpointNotificationCallback(outputNotifications);
+            outputNotifications = null;
+            deviceEnumerator?.Dispose();
+            deviceEnumerator = null;
+            base.OnHandleDestroyed(e);
+        }
+
+        private void OutputChanged(string deviceId, bool defaultChanged)
+        {
+            WasapiOut activeOutput = output;
+            if (activeOutput == null)
+                return;
+
+            PostToForm(() =>
+            {
+                bool affectsOutput = defaultChanged ? deviceId != outputDeviceId : deviceId == outputDeviceId;
+                if (ReferenceEquals(activeOutput, output) && affectsOutput)
+                    SuspendOutput();
+            });
+        }
+
+        private void PostToForm(Action action)
+        {
+            if (!IsHandleCreated || Disposing)
+                return;
+
+            try
+            {
+                BeginInvoke(action);
+            }
+            catch (InvalidOperationException) when (!IsHandleCreated || Disposing || IsDisposed)
+            {
+                // The window closed before its notification could be queued.
+            }
+        }
+
+        private void HandleMediaButton(SystemMediaTransportControlsButton button)
+        {
+            switch (button)
+            {
+                case SystemMediaTransportControlsButton.Play:
+                    Play();
+                    break;
+                case SystemMediaTransportControlsButton.Pause:
+                case SystemMediaTransportControlsButton.Stop:
+                    PausePlayback();
+                    break;
+                case SystemMediaTransportControlsButton.Next:
+                    if (next.Enabled)
+                        Advance();
+                    break;
+                case SystemMediaTransportControlsButton.Previous:
+                    PlayPrevious();
+                    break;
+            }
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            const int WmAppCommand = 0x0319;
+            if (message.Msg == WmAppCommand && playbackToggle.Enabled && !Disposing)
+            {
+                const int MediaNextTrack = 11;
+                const int MediaPreviousTrack = 12;
+                const int MediaStop = 13;
+                const int MediaPlayPause = 14;
+                const int MediaPlay = 46;
+                const int MediaPause = 47;
+
+                // WM_APPCOMMAND carries the command and its source in the high word.
+                int command = (int)((message.LParam.ToInt64() >> 16) & 0x0fff);
+                switch (command)
+                {
+                    case MediaNextTrack: HandleMediaButton(SystemMediaTransportControlsButton.Next); break;
+                    case MediaPreviousTrack: HandleMediaButton(SystemMediaTransportControlsButton.Previous); break;
+                    case MediaStop: HandleMediaButton(SystemMediaTransportControlsButton.Stop); break;
+                    case MediaPlayPause: TogglePlayback(); break;
+                    case MediaPlay: HandleMediaButton(SystemMediaTransportControlsButton.Play); break;
+                    case MediaPause: HandleMediaButton(SystemMediaTransportControlsButton.Pause); break;
+                    default:
+                        base.WndProc(ref message);
+                        return;
+                }
+                message.Result = new IntPtr(1);
+                return;
+            }
+            base.WndProc(ref message);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -314,6 +522,13 @@ namespace MP3Player
             return ex is IOException || ex is UnauthorizedAccessException || ex is SecurityException
                 || ex is ArgumentException || ex is NotSupportedException || ex is InvalidOperationException
                 || ex is InvalidDataException || ex is COMException;
+        }
+
+        private static bool IsOutputUnavailable(COMException ex)
+        {
+            const int EndpointNotFound = unchecked((int)0x80070490);
+            return ex.ErrorCode == EndpointNotFound || ex.ErrorCode == AudioClientErrorCode.DeviceInvalidated
+                || ex.ErrorCode == AudioClientErrorCode.ResourcesInvalidated;
         }
     }
 }

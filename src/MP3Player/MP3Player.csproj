@@ -5,9 +5,15 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>MP3Player.ico</ApplicationIcon>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <WindowsSdkRoot>$([Microsoft.Build.Utilities.ToolLocationHelper]::GetPlatformSDKLocation('Windows', '10.0'))</WindowsSdkRoot>
+    <WindowsSdkVersion>$([Microsoft.Build.Utilities.ToolLocationHelper]::GetLatestSDKTargetPlatformVersion('Windows', '10.0'))</WindowsSdkVersion>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="MP3Player.ico" LogicalName="MP3Player.MP3Player.ico" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <Reference Include="Windows">
+      <HintPath>$(WindowsSdkRoot)UnionMetadata\$(WindowsSdkVersion)\Windows.winmd</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>
